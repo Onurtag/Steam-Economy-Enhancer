@@ -4,7 +4,7 @@
 // @namespace   https://github.com/Nuklon
 // @author      Nuklon
 // @license     MIT
-// @version     6.8.2
+// @version     6.8.3
 // @description Enhances the Steam Inventory and Steam Market.
 // @include     *://steamcommunity.com/id/*/inventory*
 // @include     *://steamcommunity.com/profiles/*/inventory*
@@ -1941,11 +1941,13 @@
 
                     if (histogram != null && histogram.highest_buy_order != null) {
                         prices.push(parseInt(histogram.highest_buy_order));
+                        prices.push(parseInt(histogram.highest_buy_order) + 1);
                     }
 
                     if (histogram != null && histogram.lowest_sell_order != null) {
                         prices.push(parseInt(histogram.lowest_sell_order) - 1);
                         prices.push(parseInt(histogram.lowest_sell_order));
+                        prices.push(parseInt(histogram.lowest_sell_order) + 1);
                     }
 
                     prices = prices.filter((v, i) => prices.indexOf(v) === i).sort((a, b) => a - b);
