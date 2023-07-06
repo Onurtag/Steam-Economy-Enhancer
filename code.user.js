@@ -4,7 +4,7 @@
 // @namespace   https://github.com/Nuklon
 // @author      Nuklon
 // @license     MIT
-// @version     6.8.9
+// @version     6.9.0
 // @description Enhances the Steam Inventory and Steam Market.
 // @include     *://steamcommunity.com/id/*/inventory*
 // @include     *://steamcommunity.com/profiles/*/inventory*
@@ -3251,7 +3251,7 @@
                 var marketList = getListFromContainer(selectionGroup);
 
                 for (var i = 0; i < marketList.matchingItems.length; i++) {
-                    if ($(marketList.matchingItems[i].elm).hasClass('overpriced') && $('.market_select_item', $(marketList.matchingItems[i].elm)).prop('checked')) {
+                    if ($(marketList.matchingItems[i].elm) && $('.market_select_item', $(marketList.matchingItems[i].elm)).prop('checked')) {
                         var listingid = replaceNonNumbers(marketList.matchingItems[i].values().market_listing_item_name);
                         queueOverpricedItemListing(listingid);
                     }
