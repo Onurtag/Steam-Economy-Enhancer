@@ -4,7 +4,7 @@
 // @namespace   https://github.com/Nuklon
 // @author      Nuklon
 // @license     MIT
-// @version     6.9.0
+// @version     6.9.3
 // @description Enhances the Steam Inventory and Steam Market.
 // @include     *://steamcommunity.com/id/*/inventory*
 // @include     *://steamcommunity.com/profiles/*/inventory*
@@ -676,7 +676,7 @@
         var url = window.location.protocol + '//steamcommunity.com/market/listings/' + appid + '/' + market_name;
         $.get(url,
                 function(page) {
-                    var matches = /Market_LoadOrderSpread\( (.+) \);/.exec(page);
+                    var matches = /Market_LoadOrderSpread\( (\d+) \);/.exec(page);
                     if (matches == null) {
                         callback(ERROR_DATA);
                         return;
@@ -1585,7 +1585,7 @@
 
                 var itemsString = '';
                 for (var itemName in itemsWithQty) {
-                    itemsString += '&items[]=' + encodeURI(itemName) + '&qty[]=' + itemsWithQty[itemName];
+                    itemsString += '&items[]=' + encodeURIComponent(itemName) + '&qty[]=' + itemsWithQty[itemName];
                 }
 
                 var baseUrl = 'https://steamcommunity.com/market/multisell';
@@ -2584,7 +2584,7 @@
                         $('.actual_content', listingUI).css('background', COLOR_PENDING);
 
                         setTimeout(function() {
-                            var baseUrl = $('.header_notification_items').first().attr('href') + 'json/';
+                            var baseUrl = document.querySelector('a.submenuitem[href$="/inventory/"]').href + 'json/';
                             var itemName = $('.market_listing_item_name_link', listingUI).first().attr('href');
                             var marketHashNameIndex = itemName.lastIndexOf('/') + 1;
                             var marketHashName = itemName.substring(marketHashNameIndex);
@@ -3137,10 +3137,22 @@
             // Sell orders.
             $('.my_market_header').first().append(
                 '<div class="market_listing_buttons">' +
+
                 '<a class="item_market_action_button item_market_action_button_green select_all market_listing_button">' +
                 '<span class="item_market_action_button_contents" style="text-transform:none">Select all</span>' +
                 '</a>' +
                 '<span class="separator-small"></span>' +
+
+                '<a class="item_market_action_button item_market_action_button_green select_five_from_page market_listing_button">' +
+                '<span class="item_market_action_button_contents" style="text-transform:none">Select 5</span>' +
+                '</a>' +
+                '<span class="separator-small"></span>' +
+
+                '<a class="item_market_action_button item_market_action_button_green select_twentyfive_from_page market_listing_button">' +
+                '<span class="item_market_action_button_contents" style="text-transform:none">Select 25</span>' +
+                '</a>' +
+                '<span class="separator-small"></span>' +
+
                 '<a class="item_market_action_button item_market_action_button_green remove_selected market_listing_button">' +
                 '<span class="item_market_action_button_contents" style="text-transform:none">Remove selected</span>' +
                 '</a>' +
@@ -3148,13 +3160,16 @@
                 '<span class="item_market_action_button_contents" style="text-transform:none">Relist selected</span>' +
                 '</a>' +
                 '<span class="separator-small"></span>' +
+
                 '<a class="item_market_action_button item_market_action_button_green relist_overpriced market_listing_button market_listing_button_right">' +
                 '<span class="item_market_action_button_contents" style="text-transform:none">Relist overpriced</span>' +
                 '</a>' +
                 '<span class="separator-small"></span>' +
+
                 '<a class="item_market_action_button item_market_action_button_green select_overpriced market_listing_button market_listing_button_right">' +
                 '<span class="item_market_action_button_contents" style="text-transform:none">Select overpriced</span>' +
                 '</a>' +
+
                 '</div>');
 
             // Listings confirmations and buy orders.
@@ -3193,6 +3208,45 @@
                 updateMarketSelectAllButton();
             });
 
+            $('.select_five_from_page').on('click', '*', function() {
+                var selectionGroup = $(this).parent().parent().parent().parent();
+                var marketList = getListFromContainer(selectionGroup);
+
+                var invert = $('.market_select_item:checked', selectionGroup).length == $('.market_select_item', selectionGroup).length;
+
+                var count = 0
+                for (var i = 0; i < marketList.matchingItems.length; i++) {
+                    if(count == 5){
+                        break;
+                    }
+                    if(!$('.market_select_item', marketList.matchingItems[i].elm).prop('checked')){
+                        $('.market_select_item', marketList.matchingItems[i].elm).prop('checked', true);
+                        count += 1;
+                    }
+                }
+
+                updateMarketSelectAllButton();
+            });
+
+            $('.select_twentyfive_from_page').on('click', '*', function() {
+                var selectionGroup = $(this).parent().parent().parent().parent();
+                var marketList = getListFromContainer(selectionGroup);
+
+                var invert = $('.market_select_item:checked', selectionGroup).length == $('.market_select_item', selectionGroup).length;
+
+                var count = 0
+                for (var i = 0; i < marketList.matchingItems.length; i++) {
+                    if(count == 25){
+                        break;
+                    }
+                    if(!$('.market_select_item', marketList.matchingItems[i].elm).prop('checked')){
+                        $('.market_select_item', marketList.matchingItems[i].elm).prop('checked', true);
+                        count += 1;
+                    }
+                }
+
+                updateMarketSelectAllButton();
+            });
 
             $('#market_removelisting_dialog_accept').on('click', '*', function() {
                 // This is when a user removed an item through the Remove/Cancel button.
@@ -3353,11 +3407,13 @@
                 return a[1] - b[1];
             }).reverse();
 
-            var totalText = '<strong>Number of items: ' + sortable.length + ', worth ' + (totalPrice / 100).toFixed(2) + currencySymbol + '<br/><br/></strong>';
-
+            var totalText = '<strong>Number of unique items: ' + sortable.length + ', worth ' + (totalPrice / 100).toFixed(2) + currencySymbol + '<br/><br/></strong>';
+            var totalNumOfItems = 0;
             for (var i = 0; i < sortable.length; i++) {
                 totalText += sortable[i][1] + 'x ' + sortable[i][0] + '<br/>';
+                totalNumOfItems += sortable[i][1];
             }
+            totalText += '<br/><strong>Total items: ' + totalNumOfItems + '</strong><br/>';
 
             return totalText;
         }
