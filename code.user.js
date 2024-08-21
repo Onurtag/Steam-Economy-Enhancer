@@ -1303,7 +1303,7 @@
                         const success = Boolean(data?.success);
                         const message = data?.message || '';
 
-                        const callback = () => setTimeout(() => next(), getRandomInt(1000, 1500));
+                        const callback = () => setTimeout(() => next(), getRandomInt(700, 1000));
 
                         if (success) {
                             logDOM(`${padLeft} - ${itemName} listed for ${formatPrice(market.getPriceIncludingFees(task.sellPrice))}, you will receive ${formatPrice(task.sellPrice)}.`);
@@ -1493,7 +1493,7 @@
                 } else {
                     const delay = numberOfFailedRequests > 1
                         ? getRandomInt(30000, 45000)
-                        : getRandomInt(1000, 1500);
+                        : getRandomInt(700, 1000);
 
                     if (numberOfFailedRequests > 3) {
                         numberOfFailedRequests = 0;
@@ -1568,7 +1568,7 @@
                 } else {
                     const delay = numberOfFailedRequests > 1
                         ? getRandomInt(30000, 45000)
-                        : getRandomInt(1000, 1500);
+                        : getRandomInt(700, 1000);
 
                     if (numberOfFailedRequests > 3) {
                         numberOfFailedRequests = 0;
@@ -1807,14 +1807,14 @@
                 item.ignoreErrors,
                 (success, cached) => {
                     if (success) {
-                        setTimeout(() => next(),  cached ? 0 : getRandomInt(1000, 1500));
+                        setTimeout(() => next(),  cached ? 0 : getRandomInt(700, 1000));
                     } else {
                         if (!item.ignoreErrors) {
                             item.ignoreErrors = true;
                             itemQueue.push(item);
                         }
 
-                        const delay = numberOfFailedRequests > 1 ? getRandomInt(30000, 45000) : getRandomInt(1000, 1500);
+                        const delay = numberOfFailedRequests > 1 ? getRandomInt(30000, 45000) : getRandomInt(700, 1000);
                         numberOfFailedRequests = numberOfFailedRequests > 3 ? 0 : numberOfFailedRequests;
 
                         setTimeout(() => next(),  cached ? 0 : delay);
@@ -2482,7 +2482,7 @@
                     false,
                     (success, cached) => {
                         if (success) {
-                            setTimeout(() => next(), cached ? 0 : getRandomInt(1000, 1500));
+                            setTimeout(() => next(), cached ? 0 : getRandomInt(700, 1000));
                         } else {
                             if (!item.ignoreErrors) {
                                 item.ignoreErrors = true;
@@ -2491,7 +2491,7 @@
 
                             numberOfFailedRequests++;
 
-                            const delay = numberOfFailedRequests > 1 ? getRandomInt(30000, 45000) : getRandomInt(1000, 1500);
+                            const delay = numberOfFailedRequests > 1 ? getRandomInt(30000, 45000) : getRandomInt(700, 1000);
                             numberOfFailedRequests = numberOfFailedRequests > 3 ? 0 : numberOfFailedRequests;
 
                             setTimeout(() => next(), cached ? 0 : delay);
@@ -2579,7 +2579,7 @@
                     };
 
                     if (success) {
-                        setTimeout(callback, cached ? 0 : getRandomInt(1000, 1500));
+                        setTimeout(callback, cached ? 0 : getRandomInt(700, 1000));
                     } else {
                         setTimeout(() => marketListingsQueueWorker(listing, true, callback), cached ? 0 : getRandomInt(30000, 45000));
                     }
@@ -2772,7 +2772,7 @@
                         };
 
                         if (success) {
-                            setTimeout(callback, getRandomInt(1000, 1500));
+                            setTimeout(callback, getRandomInt(700, 1000));
                         } else {
                             setTimeout(() => marketOverpricedQueueWorker(item, true, callback), getRandomInt(30000, 45000));
                         }
@@ -2936,7 +2936,7 @@
             (listing, next) => {
                 const callback = () => {
                     increaseMarketProgress();
-                    setTimeout(() => next(), getRandomInt(1000, 1500));
+                    setTimeout(() => next(), getRandomInt(700, 1000));
                 };
 
                 const url = `${window.location.origin}/market/mylistings`
