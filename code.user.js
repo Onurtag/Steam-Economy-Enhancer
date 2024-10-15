@@ -4,7 +4,7 @@
 // @namespace    https://github.com/Nuklon
 // @author       Nuklon
 // @license      MIT
-// @version      7.0.0
+// @version      7.1.1
 // @description  Enhances the Steam Inventory and Steam Market.
 // @match        https://steamcommunity.com/id/*/inventory*
 // @match        https://steamcommunity.com/profiles/*/inventory*
@@ -117,7 +117,7 @@
             requestStorageHash = `${requestStorageHash}:steamcommunity.com/market`;
             delayBetweenRequests = 1000;
         }
-        
+
         const lastRequest = JSON.parse(getLocalStorageItem(requestStorageHash) || JSON.stringify({ time: new Date(0), limited: false }));
         const timeSinceLastRequest = Date.now() - new Date(lastRequest.time).getTime();
 
@@ -150,7 +150,7 @@
                     callback(error, data);
                 } else {
                     callback(null, data)
-                } 
+                }
             },
             error: (xhr) => {
                 if (xhr.status === 429) {
@@ -500,7 +500,7 @@
     // Price is before fees.
     SteamMarket.prototype.sellItem = function(item, price, callback /*err, data*/) {
         const url = `${window.location.origin}/market/sellitem/`;
-        
+
         const options = {
             method: 'POST',
             data: {
@@ -520,15 +520,15 @@
     // Removes an item.
     // Item is the unique item id.
     SteamMarket.prototype.removeListing = function(item, isBuyOrder, callback /*err, data*/) {
-        const url = isBuyOrder 
-            ? `${window.location.origin}/market/cancelbuyorder/` 
+        const url = isBuyOrder
+            ? `${window.location.origin}/market/cancelbuyorder/`
             : `${window.location.origin}/market/removelisting/${item}`;
 
         const options = {
             method: 'POST',
-            data: { 
-                sessionid: readCookie('sessionid'), 
-                ...(isBuyOrder ? { buy_orderid: item } : {}) 
+            data: {
+                sessionid: readCookie('sessionid'),
+                ...(isBuyOrder ? { buy_orderid: item } : {})
             },
             responseType: 'json'
         };
@@ -554,6 +554,13 @@
     // Prices are ordered by oldest to most recent.
     // Price is inclusive of fees.
     SteamMarket.prototype.getPriceHistory = function(item, cache, callback) {
+        const shouldUseAverage = getSettingWithDefault(SETTING_PRICE_ALGORITHM) == 1;
+
+        if (!shouldUseAverage) {
+            // The price history is only used by the "average price" calculation
+            return callback(ERROR_SUCCESS, null, true);
+        }
+
         try {
             const market_name = getMarketHashName(item);
             if (market_name == null) {
@@ -735,7 +742,7 @@
         };
 
         request(
-            url, 
+            url,
             options,
             (error, data) => {
                 if (error) {
@@ -795,12 +802,12 @@
 
     // Get the item name id from a market item.
     SteamMarket.prototype.getCurrentMarketItemNameId = function(appid, market_name, callback) {
-        const url = `${window.location.origin}/market/listings/${appid}/${market_name}`;
+        const url = `${window.location.origin}/market/listings/${appid}/${escapeURI(market_name)}`;
 
         const options = { method: 'GET' };
 
         request(
-            url, 
+            url,
             options,
             (error, data) => {
                 if (error) {
@@ -986,19 +993,19 @@
         }
 
         if (item.description != null && item.description.market_hash_name != null) {
-            return escapeURI(item.description.market_hash_name);
+            return item.description.market_hash_name;
         }
 
         if (item.description != null && item.description.name != null) {
-            return escapeURI(item.description.name);
+            return item.description.name;
         }
 
         if (item.market_hash_name != null) {
-            return escapeURI(item.market_hash_name);
+            return item.market_hash_name;
         }
 
         if (item.name != null) {
-            return escapeURI(item.name);
+            return item.name;
         }
 
         return null;
@@ -1333,7 +1340,7 @@
 
                         logDOM(`${padLeft} - ${itemName} not added to market${message ? ` because:  ${message.charAt(0).toLowerCase()}${message.slice(1)}` : '.'}`);
                         $(`#${task.item.appid}_${task.item.contextid}_${itemId}`).css('background', COLOR_ERROR);
-                        
+
                         callback();
                     }
                 );
@@ -2568,6 +2575,12 @@
             }
         }
 
+        // Match number part from any currency format
+        const getPriceValueAsInt = listing =>
+            unsafeWindow.GetPriceValueAsInt(
+                listing.match(/(?<price>[0-9][0-9 .,]*)/)?.groups?.price ?? 0
+            );
+
         const marketListingsQueue = async.queue((listing, next) => {
             marketListingsQueueWorker(
                 listing,
@@ -2636,7 +2649,7 @@
             const listingUI = $(getListingFromLists(listing.listingid).elm);
 
             const game_name = asset.type;
-            const price = unsafeWindow.GetPriceValueAsInt($('.market_listing_price > span:nth-child(1) > span:nth-child(1)', listingUI).text());
+            const price = getPriceValueAsInt($('.market_listing_price > span:nth-child(1) > span:nth-child(1)', listingUI).text());
 
             if (price <= getSettingWithDefault(SETTING_PRICE_MIN_CHECK_PRICE) * 100) {
                 $('.market_listing_my_price', listingUI).last().css('background', COLOR_PRICE_NOT_CHECKED);
@@ -2885,7 +2898,7 @@
                             increaseMarketProgress();
                             next();
                         };
-                        
+
                         if (success) {
                             setTimeout(callback, getRandomInt(50, 100));
                         } else {
@@ -3077,8 +3090,8 @@
                 return {};
             }
 
-            const priceBuyer = unsafeWindow.GetPriceValueAsInt($('.market_listing_price > span:nth-child(1) > span:nth-child(1)', listing.elm).text());
-            const priceSeller = unsafeWindow.GetPriceValueAsInt($('.market_listing_price > span:nth-child(1) > span:nth-child(3)', listing.elm).text());
+            const priceBuyer = getPriceValueAsInt($('.market_listing_price > span:nth-child(1) > span:nth-child(1)', listing.elm).text());
+            const priceSeller = getPriceValueAsInt($('.market_listing_price > span:nth-child(1) > span:nth-child(3)', listing.elm).text());
             const itemIds = actionButton.split(',');
             const appid = replaceNonNumbers(itemIds[2]);
             const contextid = replaceNonNumbers(itemIds[3]);
@@ -3351,8 +3364,8 @@
                         let listingPriceB = $(b.values().market_listing_price).text();
                         listingPriceB = listingPriceB.substr(0, listingPriceB.indexOf('('));
 
-                        const firstPrice = unsafeWindow.GetPriceValueAsInt(listingPriceA);
-                        const secondPrice = unsafeWindow.GetPriceValueAsInt(listingPriceB);
+                        const firstPrice = getPriceValueAsInt(listingPriceA);
+                        const secondPrice = getPriceValueAsInt(listingPriceB);
 
                         return firstPrice - secondPrice;
                     }
@@ -3491,12 +3504,6 @@
                 }
 
                 updateMarketSelectAllButton();
-            });
-
-            $('#market_removelisting_dialog_accept').on('click', '*', () => {
-                // This is when a user removed an item through the Remove/Cancel button.
-                // Ideally, it should remove this item from the list (instead of just the UI element which Steam does), but I'm not sure how to get the current item yet.
-                window.location.reload();
             });
 
             $('.select_overpriced').on('click', '*', function() {
@@ -3905,8 +3912,8 @@
         .price_option_price { width: 100px }
         .inventory_item_price { top: 0px;position: absolute;right: 0;background: #3571a5;padding: 2px;color: white; font-size:11px; border: 1px solid #666666;}
 
-        .see_inventory_buttons {display:flex;flex-wrap:wrap;gap:10px;}
-        .see_inventory_buttons > .see_inventory_buttons {flex-basis: 100%;}
+        .see_inventory_buttons {display:flex;flex-wrap:wrap;gap:10px;align-items:start;}
+        .see_inventory_buttons > .see_inventory_buttons, .see_inventory_buttons > #inventory_items_spinner {flex-basis: 100%;}
         #see_market_progress { display: block; width: 50%; height: 20px; }
         #see_market_progress[hidden] { visibility: hidden; }
 
