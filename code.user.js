@@ -4,7 +4,7 @@
 // @namespace    https://github.com/Nuklon
 // @author       Nuklon
 // @license      MIT
-// @version      7.1.1
+// @version      7.1.4
 // @description  Enhances the Steam Inventory and Steam Market.
 // @match        https://steamcommunity.com/id/*/inventory*
 // @match        https://steamcommunity.com/profiles/*/inventory*
@@ -196,6 +196,7 @@
     const SETTING_MAX_MISC_PRICE = 'SETTING_MAX_MISC_PRICE';
     const SETTING_PRICE_OFFSET = 'SETTING_PRICE_OFFSET';
     const SETTING_PRICE_MIN_CHECK_PRICE = 'SETTING_PRICE_MIN_CHECK_PRICE';
+    const SETTING_PRICE_MIN_LIST_PRICE = 'SETTING_PRICE_MIN_LIST_PRICE';
     const SETTING_PRICE_ALGORITHM = 'SETTING_PRICE_ALGORITHM';
     const SETTING_PRICE_IGNORE_LOWEST_Q = 'SETTING_PRICE_IGNORE_LOWEST_Q';
     const SETTING_PRICE_HISTORY_HOURS = 'SETTING_PRICE_HISTORY_HOURS';
@@ -215,6 +216,7 @@
         SETTING_MAX_MISC_PRICE: 10,
         SETTING_PRICE_OFFSET: 0.00,
         SETTING_PRICE_MIN_CHECK_PRICE: 0.00,
+        SETTING_PRICE_MIN_LIST_PRICE: 0.03,
         SETTING_PRICE_ALGORITHM: 1,
         SETTING_PRICE_IGNORE_LOWEST_Q: 1,
         SETTING_PRICE_HISTORY_HOURS: 12,
@@ -508,7 +510,7 @@
                 appid: item.appid,
                 contextid: item.contextid,
                 assetid: item.assetid || item.id,
-                amount: 1,
+                amount: item.amount,
                 price: price
             },
             responseType: 'json'
@@ -1296,28 +1298,36 @@
 
         const sellQueue = async.queue(
             (task, next) => {
+                totalNumberOfProcessedQueueItems++;
+
+                const digits = getNumberOfDigits(totalNumberOfQueuedItems);
+                const itemId = task.item.assetid || task.item.id;
+                const itemName = task.item.name || task.item.description.name;
+                const itemNameWithAmount = task.item.amount == 1 ? itemName : `${task.item.amount}x ${itemName}`;
+                const padLeft = `${padLeftZero(`${totalNumberOfProcessedQueueItems}`, digits)} / ${totalNumberOfQueuedItems}`;
+
+                if (getSettingWithDefault(SETTING_PRICE_MIN_LIST_PRICE) * 100 >= market.getPriceIncludingFees(task.sellPrice)) {
+                    logDOM(`${padLeft} - ${itemNameWithAmount} is not listed due to ignoring price settings.`);
+                    $(`#${task.item.appid}_${task.item.contextid}_${itemId}`).css('background', COLOR_PRICE_NOT_CHECKED);
+                    next();
+                    return;
+                }
+
                 market.sellItem(
                     task.item,
                     task.sellPrice,
                     (error, data) => {
-                        totalNumberOfProcessedQueueItems++;
-
-                        const digits = getNumberOfDigits(totalNumberOfQueuedItems);
-                        const itemId = task.item.assetid || task.item.id;
-                        const itemName = task.item.name || task.item.description.name;
-                        const padLeft = `${padLeftZero(`${totalNumberOfProcessedQueueItems}`, digits)} / ${totalNumberOfQueuedItems}`;
-
                         const success = Boolean(data?.success);
                         const message = data?.message || '';
 
                         const callback = () => setTimeout(() => next(), getRandomInt(1000, 1500));
 
                         if (success) {
-                            logDOM(`${padLeft} - ${itemName} listed for ${formatPrice(market.getPriceIncludingFees(task.sellPrice))}, you will receive ${formatPrice(task.sellPrice)}.`);
+                            logDOM(`${padLeft} - ${itemNameWithAmount} listed for ${formatPrice(market.getPriceIncludingFees(task.sellPrice) * task.item.amount)}, you will receive ${formatPrice(task.sellPrice * task.item.amount)}.`);
                             $(`#${task.item.appid}_${task.item.contextid}_${itemId}`).css('background', COLOR_SUCCESS);
 
-                            totalPriceWithoutFeesOnMarket += task.sellPrice;
-                            totalPriceWithFeesOnMarket += market.getPriceIncludingFees(task.sellPrice);
+                            totalPriceWithoutFeesOnMarket += task.sellPrice * task.item.amount;
+                            totalPriceWithFeesOnMarket += market.getPriceIncludingFees(task.sellPrice) * task.item.amount;
 
                             updateTotals();
                             callback()
@@ -1326,7 +1336,7 @@
                         }
 
                         if (message && isRetryMessage(message)) {
-                            logDOM(`${padLeft} - ${itemName} retrying listing because: ${message.charAt(0).toLowerCase()}${message.slice(1)}`);
+                            logDOM(`${padLeft} - ${itemNameWithAmount} retrying listing because: ${message.charAt(0).toLowerCase()}${message.slice(1)}`);
 
                             totalNumberOfProcessedQueueItems--;
                             sellQueue.unshift(task);
@@ -1338,7 +1348,7 @@
                             return;
                         }
 
-                        logDOM(`${padLeft} - ${itemName} not added to market${message ? ` because:  ${message.charAt(0).toLowerCase()}${message.slice(1)}` : '.'}`);
+                        logDOM(`${padLeft} - ${itemNameWithAmount} not added to market${message ? ` because:  ${message.charAt(0).toLowerCase()}${message.slice(1)}` : '.'}`);
                         $(`#${task.item.appid}_${task.item.contextid}_${itemId}`).css('background', COLOR_ERROR);
 
                         callback();
@@ -2157,7 +2167,7 @@
             const ownerActions = $(`#${item_info_id}_item_owner_actions`);
 
             // Move market link to a button
-            ownerActions.append(`<a class="btn_small btn_grey_white_innerfade" href="/market/listings/${appid}/${market_hash_name}"><span>View in Community Market</span></a>`);
+            ownerActions.append(`<a class="btn_small btn_grey_white_innerfade" href="/market/listings/${appid}/${encodeURIComponent(market_hash_name)}"><span>View in Community Market</span></a>`);
             $(`#${item_info_id}_item_market_actions > div:nth-child(1) > div:nth-child(1)`).hide();
 
             // ownerActions is hidden on other games' inventories, we need to show it to have a "Market" button visible
@@ -3050,17 +3060,19 @@
 
             let totalPriceBuyer = 0;
             let totalPriceSeller = 0;
+            let totalAmount = 0;
             // Add the listings to the queue to be checked for the price.
             for (let i = 0; i < marketLists.length; i++) {
                 for (let j = 0; j < marketLists[i].items.length; j++) {
                     const listingid = replaceNonNumbers(marketLists[i].items[j].values().market_listing_item_name);
                     const assetInfo = getAssetInfoFromListingId(listingid);
 
+                    totalAmount += assetInfo.amount
                     if (!isNaN(assetInfo.priceBuyer)) {
-                        totalPriceBuyer += assetInfo.priceBuyer;
+                        totalPriceBuyer += assetInfo.priceBuyer * assetInfo.amount;
                     }
                     if (!isNaN(assetInfo.priceSeller)) {
-                        totalPriceSeller += assetInfo.priceSeller;
+                        totalPriceSeller += assetInfo.priceSeller * assetInfo.amount;
                     }
 
                     marketListingsQueue.push({
@@ -3073,7 +3085,8 @@
                 }
             }
 
-            $('#my_market_selllistings_number').append(`<span id="my_market_sellistings_total_price">, ${formatPrice(totalPriceBuyer)} ➤ ${formatPrice(totalPriceSeller)}</span>`);
+            $('#my_market_selllistings_number').append(`<span id="my_market_sellistings_total_amount"> [${totalAmount}]</span>`)
+                                               .append(`<span id="my_market_sellistings_total_price">, ${formatPrice(totalPriceBuyer)} ➤ ${formatPrice(totalPriceSeller)}</span>`);
         }
 
 
@@ -3096,10 +3109,12 @@
             const appid = replaceNonNumbers(itemIds[2]);
             const contextid = replaceNonNumbers(itemIds[3]);
             const assetid = replaceNonNumbers(itemIds[4]);
+            const amount = Number(unsafeWindow.g_rgAssets[appid][contextid][assetid]?.amount ?? 1);
             return {
                 appid,
                 contextid,
                 assetid,
+                amount,
                 priceBuyer,
                 priceSeller
             };
@@ -3246,7 +3261,7 @@
                     }
 
                     // appid and contextid are identical, only the assetid is different for each asset.
-                    unsafeWindow.g_rgAssets[appid][contextid][assetInfo.assetid] = existingAsset;
+                    unsafeWindow.g_rgAssets[assetInfo.appid][assetInfo.contextid][assetInfo.assetid] = existingAsset;
                     marketListingsQueue.push({
                         listingid,
                         appid: assetInfo.appid,
@@ -3700,50 +3715,50 @@
     }
 
     function initializeTradeOfferUI() {
-        const updateInventoryPrices = function() {
-            if (getSettingWithDefault(SETTING_TRADEOFFER_PRICE_LABELS) == 1) {
+        if (getSettingWithDefault(SETTING_TRADEOFFER_PRICE_LABELS) == 1) {
+            const updateInventoryPrices = function() {
                 setInventoryPrices(getTradeOfferInventoryItems());
-            }
-        };
+            };
 
-        const updateInventoryPricesInTrade = function() {
-            const items = [];
-            for (let i = 0; i < unsafeWindow.g_rgCurrentTradeStatus.them.assets.length; i++) {
-                const asset = unsafeWindow.UserThem.findAsset(unsafeWindow.g_rgCurrentTradeStatus.them.assets[i].appid, unsafeWindow.g_rgCurrentTradeStatus.them.assets[i].contextid, unsafeWindow.g_rgCurrentTradeStatus.them.assets[i].assetid);
-                items.push(asset);
-            }
-            for (let i = 0; i < unsafeWindow.g_rgCurrentTradeStatus.me.assets.length; i++) {
-                const asset = unsafeWindow.UserYou.findAsset(unsafeWindow.g_rgCurrentTradeStatus.me.assets[i].appid, unsafeWindow.g_rgCurrentTradeStatus.me.assets[i].contextid, unsafeWindow.g_rgCurrentTradeStatus.me.assets[i].assetid);
-                items.push(asset);
-            }
-            setInventoryPrices(items);
-        };
+            const updateInventoryPricesInTrade = function() {
+                const items = [];
+                for (let i = 0; i < unsafeWindow.g_rgCurrentTradeStatus.them.assets.length; i++) {
+                    const asset = unsafeWindow.UserThem.findAsset(unsafeWindow.g_rgCurrentTradeStatus.them.assets[i].appid, unsafeWindow.g_rgCurrentTradeStatus.them.assets[i].contextid, unsafeWindow.g_rgCurrentTradeStatus.them.assets[i].assetid);
+                    items.push(asset);
+                }
+                for (let i = 0; i < unsafeWindow.g_rgCurrentTradeStatus.me.assets.length; i++) {
+                    const asset = unsafeWindow.UserYou.findAsset(unsafeWindow.g_rgCurrentTradeStatus.me.assets[i].appid, unsafeWindow.g_rgCurrentTradeStatus.me.assets[i].contextid, unsafeWindow.g_rgCurrentTradeStatus.me.assets[i].assetid);
+                    items.push(asset);
+                }
+                setInventoryPrices(items);
+            };
 
-        $('.trade_right > div > div > div > .trade_item_box').observe('childlist subtree', () => {
-            if (!hasLoadedAllTradeOfferItems()) {
-                return;
-            }
+            $('.trade_right > div > div > div > .trade_item_box').observe('childlist subtree', () => {
+                if (!hasLoadedAllTradeOfferItems()) {
+                    return;
+                }
 
-            const currentTradeOfferSum = unsafeWindow.g_rgCurrentTradeStatus.me.assets.length + unsafeWindow.g_rgCurrentTradeStatus.them.assets.length;
-            if (lastTradeOfferSum != currentTradeOfferSum) {
-                updateInventoryPricesInTrade();
-            }
+                const currentTradeOfferSum = unsafeWindow.g_rgCurrentTradeStatus.me.assets.length + unsafeWindow.g_rgCurrentTradeStatus.them.assets.length;
+                if (lastTradeOfferSum != currentTradeOfferSum) {
+                    updateInventoryPricesInTrade();
+                }
 
-            lastTradeOfferSum = currentTradeOfferSum;
+                lastTradeOfferSum = currentTradeOfferSum;
 
-            $('#trade_offer_your_sum').remove();
-            $('#trade_offer_their_sum').remove();
+                $('#trade_offer_your_sum').remove();
+                $('#trade_offer_their_sum').remove();
 
-            const your_sum = sumTradeOfferAssets(unsafeWindow.g_rgCurrentTradeStatus.me.assets, unsafeWindow.UserYou);
-            const their_sum = sumTradeOfferAssets(unsafeWindow.g_rgCurrentTradeStatus.them.assets, unsafeWindow.UserThem);
+                const your_sum = sumTradeOfferAssets(unsafeWindow.g_rgCurrentTradeStatus.me.assets, unsafeWindow.UserYou);
+                const their_sum = sumTradeOfferAssets(unsafeWindow.g_rgCurrentTradeStatus.them.assets, unsafeWindow.UserThem);
 
-            $('div.offerheader:nth-child(1) > div:nth-child(3)').append(`<div class="trade_offer_sum" id="trade_offer_your_sum">${your_sum}</div>`);
-            $('div.offerheader:nth-child(3) > div:nth-child(3)').append(`<div class="trade_offer_sum" id="trade_offer_their_sum">${their_sum}</div>`);
-        });
+                $('div.offerheader:nth-child(1) > div:nth-child(3)').append(`<div class="trade_offer_sum" id="trade_offer_your_sum">${your_sum}</div>`);
+                $('div.offerheader:nth-child(3) > div:nth-child(3)').append(`<div class="trade_offer_sum" id="trade_offer_their_sum">${their_sum}</div>`);
+            });
 
 
-        // Load after the inventory is loaded.
-        updateInventoryPrices();
+            // Load after the inventory is loaded.
+            updateInventoryPrices();
+        }
 
         $('#inventory_pagecontrols').observe(
             'childlist',
@@ -3755,7 +3770,7 @@
 
 
         // This only works with a new trade offer.
-        if (location.pathname !== '/tradeoffer/new/') {
+        if (location.pathname !== '/tradeoffer/new/' && location.pathname !== '/tradeoffer/new') {
             return;
         }
 
@@ -3809,6 +3824,10 @@
                 Don't check market listings with prices of and below:&nbsp;
                 <input type="number" step="0.01" id="${SETTING_PRICE_MIN_CHECK_PRICE}" value=${getSettingWithDefault(SETTING_PRICE_MIN_CHECK_PRICE)}>
             </div>
+            <div style="margin-top:6px;">
+                Don't list market listings with prices of and below:&nbsp;
+                <input type="number" step="0.01" id="${SETTING_PRICE_MIN_LIST_PRICE}" value=${getSettingWithDefault(SETTING_PRICE_MIN_LIST_PRICE)}>
+            </div>
             <div style="margin-top:24px">
                 Show price labels in inventory:&nbsp;
                 <input type="checkbox" id="${SETTING_INVENTORY_PRICE_LABELS}" ${getSettingWithDefault(SETTING_INVENTORY_PRICE_LABELS) == 1 ? 'checked' : ''}>
@@ -3861,6 +3880,7 @@
             setSetting(SETTING_MAX_MISC_PRICE, $(`#${SETTING_MAX_MISC_PRICE}`, price_options).val());
             setSetting(SETTING_PRICE_OFFSET, $(`#${SETTING_PRICE_OFFSET}`, price_options).val());
             setSetting(SETTING_PRICE_MIN_CHECK_PRICE, $(`#${SETTING_PRICE_MIN_CHECK_PRICE}`, price_options).val());
+            setSetting(SETTING_PRICE_MIN_LIST_PRICE, $(`#${SETTING_PRICE_MIN_LIST_PRICE}`, price_options).val())
             setSetting(SETTING_PRICE_ALGORITHM, $(`#${SETTING_PRICE_ALGORITHM}`, price_options).val());
             setSetting(SETTING_PRICE_IGNORE_LOWEST_Q, $(`#${SETTING_PRICE_IGNORE_LOWEST_Q}`, price_options).prop('checked') ? 1 : 0);
             setSetting(SETTING_PRICE_HISTORY_HOURS, $(`#${SETTING_PRICE_HISTORY_HOURS}`, price_options).val());
