@@ -4,7 +4,7 @@
 // @namespace    https://github.com/Nuklon_MOD_1
 // @author       Nuklon
 // @license      MIT
-// @version      7.1.16
+// @version      7.1.17
 // @description  Enhances the Steam Inventory and Steam Market.
 // @match        https://steamcommunity.com/id/*/inventory*
 // @match        https://steamcommunity.com/profiles/*/inventory*
@@ -58,8 +58,6 @@
     let totalPriceWithoutFeesOnMarket = 0;
     let totalScrap = 0;
 
-    const spinnerBlock =
-        '<div class="spinner"><div class="rect1"></div>&nbsp;<div class="rect2"></div>&nbsp;<div class="rect3"></div>&nbsp;<div class="rect4"></div>&nbsp;<div class="rect5"></div>&nbsp;</div>';
     let numberOfFailedRequests = 0;
 
     const enableConsoleLog = false;
@@ -110,6 +108,7 @@
     }
 
     request.queue = [];
+    request.errors = 0;
     request.pending = false;
     request.stopped = false;
 
@@ -193,7 +192,14 @@
 
                 // Probably something broken, better to stop here.
                 if ([400, 401, 403, 404, 405, 429].includes(xhr.status)) {
-                    request.stopped = true;
+                    if (request.errors++ === 0) {
+                        setTimeout(() => request.errors = 0, 5 * 60 * 1000);
+                    }
+
+                    if (request.errors >= 5) {
+                        request.stopped = true;
+                        request.errors = 0;
+                    }
                 }
 
                 const next = () => {
@@ -1313,7 +1319,7 @@
 
         function onQueueDrain() {
             if (itemQueue.length() == 0 && sellQueue.length() == 0 && scrapQueue.length() == 0 && boosterQueue.length() == 0) {
-                $('#inventory_items_spinner').remove();
+                removeSpinner();
             }
         }
 
@@ -1400,141 +1406,133 @@
         });
 
         function sellAllItems() {
-            loadAllInventories().then(
-                () => {
-                    const items = getInventoryItems();
-                    const filteredItems = [];
+            renderSpinner('Loading inventory items');
 
-                    items.forEach((item) => {
-                        if (!item.marketable) {
-                            return;
-                        }
+            loadAllInventories().then(() => {
+                removeSpinner();
 
-                        filteredItems.push(item);
-                    });
+                const items = getInventoryItems();
+                const filteredItems = [];
 
-                    sellItems(filteredItems);
-                },
-                () => {
-                    logDOM('Could not retrieve the inventory...');
-                }
-            );
+                items.forEach((item) => {
+                    if (!item.marketable) {
+                        return;
+                    }
+
+                    filteredItems.push(item);
+                });
+
+                sellItems(filteredItems);
+            });
         }
 
         function sellAllDuplicateItems() {
-            loadAllInventories().then(
-                () => {
-                    const items = getInventoryItems();
-                    const marketableItems = [];
-                    let filteredItems = [];
+            renderSpinner('Loading inventory items');
 
-                    items.forEach((item) => {
-                        if (!item.marketable) {
-                            return;
-                        }
+            loadAllInventories().then(() => {
+                removeSpinner();
 
-                        marketableItems.push(item);
-                    });
+                const items = getInventoryItems();
+                const marketableItems = [];
+                let filteredItems = [];
 
-                    filteredItems = marketableItems.filter((e, i) => marketableItems.map((m) => m.classid).indexOf(e.classid) !== i);
+                items.forEach((item) => {
+                    if (!item.marketable) {
+                        return;
+                    }
 
-                    sellItems(filteredItems);
-                },
-                () => {
-                    logDOM('Could not retrieve the inventory...');
-                }
-            );
+                    marketableItems.push(item);
+                });
+
+                filteredItems = marketableItems.filter((e, i) => marketableItems.map((m) => m.classid).indexOf(e.classid) !== i);
+
+                sellItems(filteredItems);
+            });
         }
 
         function gemAllDuplicateItems() {
-            loadAllInventories().then(
-                () => {
-                    const items = getInventoryItems();
-                    let filteredItems = [];
-                    let numberOfQueuedItems = 0;
+            renderSpinner('Loading inventory items');
 
-                    filteredItems = items.filter((e, i) => items.map((m) => m.classid).indexOf(e.classid) !== i);
+            loadAllInventories().then(() => {
+                removeSpinner();
 
-                    filteredItems.forEach((item) => {
-                        if (item.queued != null) {
-                            return;
-                        }
+                const items = getInventoryItems();
+                let filteredItems = [];
+                let numberOfQueuedItems = 0;
 
-                        if (item.owner_actions == null) {
-                            return;
-                        }
+                filteredItems = items.filter((e, i) => items.map((m) => m.classid).indexOf(e.classid) !== i);
 
-                        let canTurnIntoGems = false;
-                        for (const owner_action in item.owner_actions) {
-                            if (item.owner_actions[owner_action].link != null && item.owner_actions[owner_action].link.includes('GetGooValue')) {
-                                canTurnIntoGems = true;
-                            }
-                        }
-
-                        if (!canTurnIntoGems) {
-                            return;
-                        }
-
-                        item.queued = true;
-                        scrapQueue.push(item);
-                        numberOfQueuedItems++;
-                    });
-
-                    if (numberOfQueuedItems > 0) {
-                        totalNumberOfQueuedItems += numberOfQueuedItems;
-
-                        $('#inventory_items_spinner').remove();
-                        $('#inventory_sell_buttons').append(`<div id="inventory_items_spinner">${spinnerBlock
-                            }<div style="text-align:center">Processing ${numberOfQueuedItems} items</div>` +
-                            '</div>');
+                filteredItems.forEach((item) => {
+                    if (item.queued != null) {
+                        return;
                     }
-                },
-                () => {
-                    logDOM('Could not retrieve the inventory...');
+
+                    if (item.owner_actions == null) {
+                        return;
+                    }
+
+                    let canTurnIntoGems = false;
+                    for (const owner_action in item.owner_actions) {
+                        if (item.owner_actions[owner_action].link != null && item.owner_actions[owner_action].link.includes('GetGooValue')) {
+                            canTurnIntoGems = true;
+                        }
+                    }
+
+                    if (!canTurnIntoGems) {
+                        return;
+                    }
+
+                    item.queued = true;
+                    scrapQueue.push(item);
+                    numberOfQueuedItems++;
+                });
+
+                if (numberOfQueuedItems > 0) {
+                    totalNumberOfQueuedItems += numberOfQueuedItems;
+
+                    renderSpinner(`Processing ${numberOfQueuedItems} items`);
                 }
-            );
+            });
         }
 
         function sellAllCards() {
-            loadAllInventories().then(
-                () => {
-                    const items = getInventoryItems();
-                    const filteredItems = [];
+            renderSpinner('Loading inventory items');
 
-                    items.forEach((item) => {
-                        if (!getIsTradingCard(item) || !item.marketable) {
-                            return;
-                        }
+            loadAllInventories().then(() => {
+                removeSpinner();
 
-                        filteredItems.push(item);
-                    });
+                const items = getInventoryItems();
+                const filteredItems = [];
 
-                    sellItems(filteredItems);
-                },
-                () => {
-                    logDOM('Could not retrieve the inventory...');
-                }
-            );
+                items.forEach((item) => {
+                    if (!getIsTradingCard(item) || !item.marketable) {
+                        return;
+                    }
+
+                    filteredItems.push(item);
+                });
+
+                sellItems(filteredItems);
+            });
         }
 
         function sellAllCrates() {
-            loadAllInventories().then(
-                () => {
-                    const items = getInventoryItems();
-                    const filteredItems = [];
-                    items.forEach((item) => {
-                        if (!getIsCrate(item) || !item.marketable) {
-                            return;
-                        }
-                        filteredItems.push(item);
-                    });
+            renderSpinner('Loading inventory items');
 
-                    sellItems(filteredItems);
-                },
-                () => {
-                    logDOM('Could not retrieve the inventory...');
-                }
-            );
+            loadAllInventories().then(() => {
+                removeSpinner();
+
+                const items = getInventoryItems();
+                const filteredItems = [];
+                items.forEach((item) => {
+                    if (!getIsCrate(item) || !item.marketable) {
+                        return;
+                    }
+                    filteredItems.push(item);
+                });
+
+                sellItems(filteredItems);
+            });
         }
 
         const scrapQueue = async.queue((item, next) => {
@@ -1671,7 +1669,11 @@
         function turnSelectedItemsIntoGems() {
             const ids = getSelectedItems();
 
+            renderSpinner('Loading inventory items');
+
             loadAllInventories().then(() => {
+                removeSpinner();
+
                 const items = getInventoryItems();
 
                 let numberOfQueuedItems = 0;
@@ -1707,20 +1709,18 @@
                 if (numberOfQueuedItems > 0) {
                     totalNumberOfQueuedItems += numberOfQueuedItems;
 
-                    $('#inventory_items_spinner').remove();
-                    $('#inventory_sell_buttons').append(`<div id="inventory_items_spinner">${spinnerBlock
-                        }<div style="text-align:center">Processing ${numberOfQueuedItems} items</div>` +
-                        '</div>');
+                    renderSpinner(`Processing ${numberOfQueuedItems} items`);
                 }
-            }, () => {
-                logDOM('Could not retrieve the inventory...');
             });
         }
 
         // Unpacks all booster packs.
         function unpackAllBoosterPacks() {
-            loadAllInventories()
-            .then(() => {
+            renderSpinner('Loading inventory items');
+
+            loadAllInventories().then(() => {
+                removeSpinner();
+
                 const items = getInventoryItems();
 
                 let numberOfQueuedItems = 0;
@@ -1755,16 +1755,7 @@
 
                 totalNumberOfQueuedItems += numberOfQueuedItems;
 
-                $('#inventory_items_spinner').remove();
-
-                $('#inventory_sell_buttons').append(`
-                    <div id="inventory_items_spinner">${spinnerBlock}
-                        <div style="text-align:center">Processing ${numberOfQueuedItems} items</div>
-                    </div>
-                `);
-            })
-            .catch(() => {
-                logDOM('Could not retrieve the inventory...');
+                renderSpinner(`Processing ${numberOfQueuedItems} items`);
             });
         }
 
@@ -1772,7 +1763,11 @@
         function unpackSelectedBoosterPacks() {
             const ids = getSelectedItems();
 
+            renderSpinner('Loading inventory items');
+
             loadAllInventories().then(() => {
+                removeSpinner();
+
                 const items = getInventoryItems();
 
                 let numberOfQueuedItems = 0;
@@ -1804,13 +1799,8 @@
                 if (numberOfQueuedItems > 0) {
                     totalNumberOfQueuedItems += numberOfQueuedItems;
 
-                    $('#inventory_items_spinner').remove();
-                    $('#inventory_sell_buttons').append(`<div id="inventory_items_spinner">${spinnerBlock
-                        }<div style="text-align:center">Processing ${numberOfQueuedItems} items</div>` +
-                        '</div>');
+                    renderSpinner(`Processing ${numberOfQueuedItems} items`);
                 }
-            }, () => {
-                logDOM('Could not retrieve the inventory...');
             });
         }
 
@@ -1890,11 +1880,8 @@
 
             if (numberOfQueuedItems > 0) {
                 totalNumberOfQueuedItems += numberOfQueuedItems;
-
-                $('#inventory_items_spinner').remove();
-                $('#inventory_sell_buttons').append(`<div id="inventory_items_spinner">${spinnerBlock
-                    }<div style="text-align:center">Processing ${numberOfQueuedItems} items</div>` +
-                    '</div>');
+                
+                renderSpinner(`Processing ${numberOfQueuedItems} items`);
             }
         }
 
@@ -2081,8 +2068,6 @@
                 });
 
                 callback(filteredItems);
-            }, () => {
-                logDOM('Could not retrieve the inventory...');
             });
         }
 
@@ -2113,8 +2098,6 @@
                 });
 
                 callback(filteredItems);
-            }, () => {
-                logDOM('Could not retrieve the inventory...');
             });
         }
 
@@ -2145,8 +2128,6 @@
                 });
 
                 callback(filteredItems);
-            }, () => {
-                logDOM('Could not retrieve the inventory...');
             });
         }
 
@@ -2462,29 +2443,24 @@
                 }
             );
 
-            loadAllInventories().then(
-                () => {
-                    const updateInventoryPrices = function () {
-                        if (getSettingWithDefault(SETTING_INVENTORY_PRICE_LABELS) == 1) {
-                            setInventoryPrices(getInventoryItems());
-                        }
-                    };
+            loadAllInventories().then(() => {
+                const updateInventoryPrices = function () {
+                    if (getSettingWithDefault(SETTING_INVENTORY_PRICE_LABELS) == 1) {
+                        setInventoryPrices(getInventoryItems());
+                    }
+                };
 
-                    // Load after the inventory is loaded.
-                    updateInventoryPrices();
+                // Load after the inventory is loaded.
+                updateInventoryPrices();
 
-                    $('#inventory_pagecontrols').observe(
-                        'childlist',
-                        '*',
-                        () => {
-                            updateInventoryPrices();
-                        }
-                    );
-                },
-                () => {
-                    logDOM('Could not retrieve the inventory...');
-                }
-            );
+                $('#inventory_pagecontrols').observe(
+                    'childlist',
+                    '*',
+                    () => {
+                        updateInventoryPrices();
+                    }
+                );
+            });
         }
 
         // Loads the specified inventories.
@@ -2756,12 +2732,21 @@
             const market_hash_name = getMarketHashName(asset);
             const appid = listing.appid;
 
-            const listingUI = $(getListingFromLists(listing.listingid).elm);
+            let listingUI = getListingFromLists(listing.listingid);
+            if (listingUI == null) {
+                logConsole(`Listing ${listing.listingid} not found in the lists, skipping.`);
+
+                callback(true, true);
+
+                return;
+            }
+
+            listingUI = $(listingUI.elm);
 
             const game_name = asset.type;
             const price = getPriceValueAsInt($('.market_listing_price > span:nth-child(1) > span:nth-child(1)', listingUI).text());
 
-            if (price <= getSettingWithDefault(SETTING_PRICE_MIN_CHECK_PRICE) * 100) {
+            if (price <= getSettingWithDefault(SETTING_PRICE_MIN_CHECK_PRICE) * 100 || listingUI.hasClass('removing')) {
                 $('.market_listing_my_price', listingUI).last().css('background', COLOR_PRICE_NOT_CHECKED);
                 $('.market_listing_my_price', listingUI).last().prop('title', 'The price is not checked.');
                 listingUI.addClass('not_checked');
@@ -2905,7 +2890,16 @@
         );
 
         function marketOverpricedQueueWorker(item, ignoreErrors, callback) {
-            const listingUI = getListingFromLists(item.listing).elm;
+            let listingUI = getListingFromLists(item.listing)
+            if (listingUI == null) {
+                logConsole(`Listing ${item.listing} not found in the lists, skipping.`);
+
+                callback(true);
+
+                return;
+            }
+
+            listingUI = listingUI.elm;
 
             market.removeListing(
                 item.listing, false,
@@ -3128,7 +3122,8 @@
             addMarketCheckboxes();
 
             // Show the listings again, rendering is done.
-            $('#market_listings_spinner').remove();
+            removeSpinner();
+
             myMarketListings.show();
 
             fillMarketListingsQueue();
@@ -3352,9 +3347,7 @@
                 $('.market_pagesize_options').hide();
 
                 // Show the spinner so the user knows that something is going on.
-                $('.my_market_header').eq(0).append(`<div id="market_listings_spinner">${spinnerBlock
-                    }<div style="text-align:center">Loading market listings</div>` +
-                    '</div>');
+                renderSpinner('Loading market listings');
 
                 while (currentCount < totalCount) {
                     marketListingsItemsQueue.push(currentCount);
@@ -3431,8 +3424,8 @@
             let asc = true;
 
             // (Re)set the asc/desc arrows.
-            const arrow_down = '🡻';
-            const arrow_up = '🡹';
+            const arrow_down = '▼';
+            const arrow_up = '▲';
 
             $('.market_listing_table_header > span', elem).each(function () {
                 if ($(this).hasClass('market_listing_edit_buttons')) {
@@ -3722,6 +3715,10 @@
                 for (let i = 0; i < marketList.matchingItems.length; i++) {
                     if ($('.market_select_item', $(marketList.matchingItems[i].elm)).prop('checked')) {
                         const listingid = replaceNonNumbers(marketList.matchingItems[i].values().market_listing_item_name);
+
+                        const listingUI = $(getListingFromLists(listingid).elm);
+                        listingUI.addClass('removing');
+                       
                         marketRemoveQueue.push(listingid);
                         increaseMarketProgressMax();
                     }
@@ -4162,6 +4159,58 @@
         style.type = 'text/css';
         style.innerHTML = css;
         head.appendChild(style);
+    }
+
+    function renderSpinner(text) {
+        const { container, spinnerid } = getSpinnerContext();
+        if (container == null || spinnerid == null) {
+            return;
+        }
+
+        text = (text || '').trim();
+        removeSpinner();
+
+        container.append(`
+            <div id="${spinnerid}">
+                <div class="spinner">
+                    <div class="rect1"></div>
+                    <div class="rect2"></div>
+                    <div class="rect3"></div>
+                    <div class="rect4"></div>
+                    <div class="rect5"></div>
+                </div>
+                ${text ? `<div style="text-align:center">${text}</div>` : ''}
+            </div>`);
+    }
+
+    function removeSpinner() {
+        const { container, spinnerid } = getSpinnerContext();
+        if (container == null || spinnerid == null) {
+            return;
+        }
+
+        $(`#${spinnerid}`, container).remove();
+    }
+
+    function getSpinnerContext() {
+        let container = null;
+        let spinnerid = null;
+
+        switch (currentPage) {
+            case PAGE_MARKET:
+                container = $('.my_market_header').eq(0);
+                spinnerid = 'market_listings_spinner';
+                break;
+            case PAGE_INVENTORY:
+                container = $('#inventory_sell_buttons');
+                spinnerid = 'inventory_items_spinner';
+                break;
+            default:
+                break;
+        }
+
+        container = container && container.length > 0 ? container : null;
+        return { container, spinnerid };
     }
 
     $.fn.delayedEach = function (timeout, callback, continuous) {
